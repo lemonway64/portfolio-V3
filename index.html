@@ -591,7 +591,6 @@
       <div class="date" id="currentDate"></div>
       <div id="nextFriday"></div>
       <div id="quoteStatus" style="margin-top:4px;"></div>
-      <div id="fxStatus" style="margin-top:2px;font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;"></div>
     </div>
   </header>
 
@@ -618,9 +617,8 @@
         <thead>
           <tr>
             <th style="text-align:left">股票</th>
-            <th>股數／單位</th>
+            <th>股數</th>
             <th>成本價</th>
-            <th>個股總成本</th>
             <th>市價 ✎</th>
             <th>現存淨值</th>
             <th>損益</th>
@@ -631,14 +629,14 @@
           </tr>
         </thead>
         <tbody id="holdingsBody">
-          <tr><td colspan="11" class="empty-state">尚無持股，點擊右上角「新增持股」開始追蹤</td></tr>
+          <tr><td colspan="10" class="empty-state">尚無持股，點擊右上角「新增持股」開始追蹤</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <!-- 2. 資產分佈 (三個並排圓餅) -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:28px;" id="pie-section">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:28px;">
     <div class="panel">
       <div class="panel-header"><div class="panel-title">資產分佈 — 淨值佔比</div></div>
       <div style="padding:20px;">
@@ -695,25 +693,18 @@
           <div class="form-row-3">
             <div class="field">
               <label>股票代號</label>
-              <input type="text" id="quick-code" placeholder="2330 / KLAC">
+              <input type="text" id="quick-code" placeholder="2330">
             </div>
             <div class="field">
               <label>名稱</label>
               <input type="text" id="quick-name" placeholder="台積電">
             </div>
             <div class="field">
-              <label>市場</label>
-              <select id="quick-market" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:9px 10px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;width:100%;">
-                <option value="TW">🇹🇼 台股（張）</option>
-                <option value="US">🇺🇸 美股（股）</option>
-              </select>
+              <label>股數</label>
+              <input type="text" inputmode="decimal" id="quick-shares" placeholder="1000">
             </div>
           </div>
           <div class="form-row-3">
-            <div class="field">
-              <label id="shares-label">股數（張）</label>
-              <input type="text" inputmode="decimal" id="quick-shares" placeholder="1">
-            </div>
             <div class="field">
               <label>成本價</label>
               <input type="text" inputmode="decimal" id="quick-cost" placeholder="204.09">
@@ -722,9 +713,7 @@
               <label>市價</label>
               <input type="text" inputmode="decimal" id="quick-price" placeholder="236">
             </div>
-          </div>
-          <div class="form-row-3">
-            <div class="field" style="grid-column:1/3;">
+            <div class="field">
               <label>停損點（選填）</label>
               <input type="text" inputmode="decimal" id="quick-sl" placeholder="200">
             </div>
@@ -900,7 +889,29 @@ let state = {
   initialCost: null
 };
 
-const COLORS = ['#00d4ff','#00ff9d','#ffb800','#ff4566','#a855f7','#f97316','#06b6d4'];
+// 每個股票固定顏色，跨三個圓餅圖保持一致
+const COLORS = [
+  '#00d4ff', // 青藍
+  '#ffb800', // 琥珀
+  '#a855f7', // 紫
+  '#ff4566', // 紅
+  '#00ff9d', // 翠綠
+  '#f97316', // 橙
+  '#e879f9', // 粉紫
+  '#34d399', // 薄荷
+  '#fb7185', // 玫瑰
+  '#60a5fa', // 天藍
+  '#fbbf24', // 金
+  '#4ade80', // 草綠
+  '#c084fc', // 淡紫
+  '#f87171', // 珊瑚
+  '#38bdf8', // 水藍
+];
+
+// 根據股票在 holdings 中的 index 取得固定顏色
+function getColor(i) {
+  return COLORS[i % COLORS.length];
+}
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 function save() { localStorage.setItem('portfolio_tw', JSON.stringify(state)); }
@@ -928,63 +939,14 @@ function load() {
   }
 }
 
-// ── 匯率 ──────────────────────────────────────────────────────────────────────
-let usdTwd = 32; // 預設匯率，啟動時自動更新
-
-async function fetchUsdTwd() {
-  try {
-    // Finnhub forex quote
-    const FINNHUB_KEY = 'd94s6l9r01qq8ms63mf0d94s6l9r01qq8ms63mfg';
-    const res = await fetch(`https://finnhub.io/api/v1/forex/rates?base=USD&token=${FINNHUB_KEY}`);
-    if (res.ok) {
-      const json = await res.json();
-      const rate = json?.quote?.TWD;
-      if (rate && rate > 20 && rate < 50) {
-        usdTwd = rate;
-        const el = document.getElementById('fxStatus');
-        if (el) el.textContent = `USD/TWD ${usdTwd.toFixed(2)}`;
-        debugLog(`USD/TWD 匯率: ${usdTwd}`);
-        return;
-      }
-    }
-  } catch(e) { debugLog(`匯率抓取失敗: ${e.message}`); }
-
-  // Fallback: exchangerate-api
-  try {
-    const res = await fetch('https://open.er-api.com/v6/latest/USD');
-    if (res.ok) {
-      const json = await res.json();
-      const rate = json?.rates?.TWD;
-      if (rate) {
-        usdTwd = rate;
-        const el = document.getElementById('fxStatus');
-        if (el) el.textContent = `USD/TWD ${usdTwd.toFixed(2)}`;
-        debugLog(`USD/TWD 匯率(fallback): ${usdTwd}`);
-      }
-    }
-  } catch(e) { debugLog(`匯率 fallback 失敗: ${e.message}`); }
-}
-
-// 判斷是否為美股（非純數字代號）
-function isUsStock(code) {
-  return !/^\d+$/.test(code.trim());
-}
-
 // ── Calculations ─────────────────────────────────────────────────────────────
 function calcHolding(h) {
-  const isUS = isUsStock(h.code);
-  // 台股：1張 = 1000股；美股：1單位 = 1股
-  const multiplier = isUS ? 1 : 1000;
-  // 價格：美股用USD→TWD；台股直接用TWD
-  const priceInTwd = isUS ? h.price * usdTwd : h.price;
-  const costInTwd  = isUS ? h.cost  * usdTwd : h.cost;
-
-  const netValue  = h.shares * multiplier * priceInTwd;
-  const costValue = h.shares * multiplier * costInTwd;
-  const pnl    = netValue - costValue;
-  const pnlPct = costValue > 0 ? (pnl / costValue * 100) : 0;
+  const netValue = h.shares * h.price;
+  const costValue = h.shares * h.cost;
+  const pnl = netValue - costValue;
+  const pnlPct = ((pnl / costValue) * 100);
   const slDist = h.sl ? ((h.price - h.sl) / h.price * 100) : null;
-  return { netValue, costValue, pnl, pnlPct, slDist, isUS, priceInTwd, costInTwd, multiplier };
+  return { netValue, costValue, pnl, pnlPct, slDist };
 }
 
 function calcTotal() {
@@ -993,9 +955,9 @@ function calcTotal() {
   let totalPnl = 0;
   for (const h of state.holdings) {
     const c = calcHolding(h);
-    totalNet  += c.netValue;
+    totalNet += c.netValue;
     totalCost += c.costValue;
-    totalPnl  += c.pnl;
+    totalPnl += c.pnl;
   }
   return { totalNet, totalCost, totalPnl };
 }
@@ -1067,21 +1029,11 @@ function render() {
       return `<tr>
         <td>
           <div class="stock-name editable" onclick="inlineEdit(this, ${i}, 'name')" title="點擊編輯名稱">${h.name}</div>
-          <div class="stock-code editable" onclick="inlineEdit(this, ${i}, 'code')" title="點擊編輯代號" style="font-size:11px;color:var(--text3)">${h.code} ${c.isUS ? '<span style="color:#ffb800;font-size:9px">US</span>' : ''}</div>
+          <div class="stock-code editable" onclick="inlineEdit(this, ${i}, 'code')" title="點擊編輯代號" style="font-size:11px;color:var(--text3)">${h.code}</div>
         </td>
-        <td>
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'shares')" title="點擊編輯">${fmtNum(h.shares)}</span>
-          <div style="font-size:9px;color:var(--text3)">${c.isUS ? '股' : '張'}</div>
-        </td>
-        <td>
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'cost')" title="點擊編輯成本價">${h.cost.toFixed(c.isUS?2:2)}</span>
-          <div style="font-size:9px;color:var(--text3)">${c.isUS ? 'USD' : 'TWD'}</div>
-        </td>
-        <td style="color:var(--text2)">${fmt(c.costValue)}</td>
-        <td style="color:var(--text)">
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'price')" title="點擊編輯市價">${h.price.toFixed(c.isUS?2:2)}</span>
-          <div style="font-size:9px;color:var(--text3)">${c.isUS ? 'USD' : 'TWD'}</div>
-        </td>
+        <td><span class="editable" onclick="inlineEdit(this, ${i}, 'shares')" title="點擊編輯股數">${fmtNum(h.shares)}</span></td>
+        <td><span class="editable" onclick="inlineEdit(this, ${i}, 'cost')" title="點擊編輯成本價">${h.cost.toFixed(2)}</span></td>
+        <td style="color:var(--text)"><span class="editable" onclick="inlineEdit(this, ${i}, 'price')" title="點擊編輯市價">${h.price.toFixed(2)}</span></td>
         <td style="color:var(--text)">${fmt(c.netValue)}</td>
         <td class="${pnlClass}">${fmt(c.pnl)}</td>
         <td class="${pnlClass}">${fmtPct(c.pnlPct)}</td>
@@ -1095,7 +1047,7 @@ function render() {
       <td><span style="color:var(--text2)">現金</span></td>
       <td colspan="3">—</td>
       <td>${fmt(state.cash)}</td>
-      <td colspan="6">—</td>
+      <td colspan="5">—</td>
     </tr>`;
   }
 
@@ -1132,18 +1084,22 @@ function renderPie() {
 
   // Destroy existing charts
   Chart.getChart(document.getElementById('pieNet'))?.destroy();
-  Chart.getChart(document.getElementById('pieCost'))?.destroy();
   Chart.getChart(document.getElementById('piePnl'))?.destroy();
+  if (document.getElementById('pieCost')) Chart.getChart(document.getElementById('pieCost'))?.destroy();
+
+  // 共用顏色（依 holdings index 固定）
+  const holdingColors = state.holdings.map((_, i) => getColor(i));
 
   // ── Net Value Pie ─────────────────────────────────────────────────────────
-  const netData = state.holdings.map(h => calcHolding(h).netValue);
+  const netData   = state.holdings.map(h => calcHolding(h).netValue);
   const netLabels = state.holdings.map(h => h.name);
-  if (state.cash > 0) { netData.push(state.cash); netLabels.push('現金'); }
-  const netTotal = netData.reduce((a, b) => a + b, 0);
+  const netColors = [...holdingColors];
+  if (state.cash > 0) { netData.push(state.cash); netLabels.push('現金'); netColors.push('#64748b'); }
+  const netTotal  = netData.reduce((a,b)=>a+b,0);
 
   new Chart(document.getElementById('pieNet').getContext('2d'), {
     type: 'pie',
-    data: { labels: netLabels, datasets: [{ data: netData, backgroundColor: COLORS, borderWidth: 2, borderColor: '#111827' }] },
+    data: { labels: netLabels, datasets: [{ data: netData, backgroundColor: netColors, borderWidth: 2, borderColor: '#111827' }] },
     options: {
       plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.raw)} (${(ctx.raw/netTotal*100).toFixed(1)}%)`}} },
       animation:{animateRotate:true,duration:600}
@@ -1152,58 +1108,53 @@ function renderPie() {
   });
   document.getElementById('legendNet').innerHTML = netLabels.map((l,i)=>`
     <div class="legend-item">
-      <div class="legend-name"><div class="legend-dot" style="background:${COLORS[i]}"></div>${l}</div>
+      <div class="legend-name"><div class="legend-dot" style="background:${netColors[i]}"></div>${l}</div>
       <div class="legend-pct">${netTotal>0?(netData[i]/netTotal*100).toFixed(1):0}%</div>
     </div>`).join('');
 
   // ── Cost Pie ──────────────────────────────────────────────────────────────
-  const costData   = state.holdings.map(h => calcHolding(h).costValue);
-  const costLabels = state.holdings.map(h => h.name);
-  const costTotal  = costData.reduce((a,b)=>a+b,0);
+  if (document.getElementById('pieCost')) {
+    const costData   = state.holdings.map(h => calcHolding(h).costValue);
+    const costLabels = state.holdings.map(h => h.name);
+    const costTotal  = costData.reduce((a,b)=>a+b,0);
+    Chart.getChart(document.getElementById('pieCost'))?.destroy();
+    new Chart(document.getElementById('pieCost').getContext('2d'), {
+      type: 'pie',
+      data: { labels: costLabels, datasets: [{ data: costData, backgroundColor: holdingColors, borderWidth: 2, borderColor: '#111827' }] },
+      options: {
+        plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.raw)} (${(ctx.raw/costTotal*100).toFixed(1)}%)`}} },
+        animation:{animateRotate:true,duration:600}
+      },
+      plugins: [insideLabelPlugin]
+    });
+    const legendCost = document.getElementById('legendCost');
+    if (legendCost) legendCost.innerHTML = costLabels.map((l,i)=>`
+      <div class="legend-item">
+        <div class="legend-name"><div class="legend-dot" style="background:${holdingColors[i]}"></div>${l}</div>
+        <div class="legend-pct">${costTotal>0?(costData[i]/costTotal*100).toFixed(1):0}%</div>
+      </div>`).join('');
+  }
 
-  new Chart(document.getElementById('pieCost').getContext('2d'), {
+  // ── PnL Pie ───────────────────────────────────────────────────────────────
+  const pnlData   = state.holdings.map(h => Math.abs(calcHolding(h).pnl));
+  const pnlLabels = state.holdings.map(h => h.name);
+  const pnlTotal  = pnlData.reduce((a,b)=>a+b,0);
+
+  new Chart(document.getElementById('piePnl').getContext('2d'), {
     type: 'pie',
-    data: { labels: costLabels, datasets: [{ data: costData, backgroundColor: COLORS, borderWidth: 2, borderColor: '#111827' }] },
+    data: { labels: pnlLabels, datasets: [{ data: pnlData, backgroundColor: holdingColors, borderWidth: 2, borderColor: '#111827' }] },
     options: {
-      plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(ctx.raw)} (${(ctx.raw/costTotal*100).toFixed(1)}%)`}} },
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmt(calcHolding(state.holdings[ctx.dataIndex]).pnl)} (${(ctx.raw/pnlTotal*100).toFixed(1)}%)`}} },
       animation:{animateRotate:true,duration:600}
     },
     plugins: [insideLabelPlugin]
   });
-  document.getElementById('legendCost').innerHTML = costLabels.map((l,i)=>`
-    <div class="legend-item">
-      <div class="legend-name"><div class="legend-dot" style="background:${COLORS[i]}"></div>${l}</div>
-      <div class="legend-pct">${costTotal>0?(costData[i]/costTotal*100).toFixed(1):0}%</div>
-    </div>`).join('');
-
-  // ── PnL Pie ───────────────────────────────────────────────────────────────
-  const pnlData = state.holdings.map(h => Math.abs(calcHolding(h).pnl));
-  const pnlLabels = state.holdings.map(h => h.name);
-  const pnlTotal = pnlData.reduce((a, b) => a + b, 0);
-
-  new Chart(document.getElementById('piePnl').getContext('2d'), {
-    type: 'pie',
-    data: {
-      labels: pnlLabels,
-      datasets: [{ data: pnlData, backgroundColor: COLORS, borderWidth: 2, borderColor: '#111827' }]
-    },
-    options: {
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmt(calcHolding(state.holdings[ctx.dataIndex]).pnl)} (${(ctx.raw/pnlTotal*100).toFixed(1)}%)` } }
-      },
-      animation: { animateRotate: true, duration: 600 }
-    },
-    plugins: [insideLabelPlugin]
-  });
-
-  // Legend PnL
-  document.getElementById('legendPnl').innerHTML = pnlLabels.map((l, i) => {
+  document.getElementById('legendPnl').innerHTML = pnlLabels.map((l,i)=>{
     const realPnl = calcHolding(state.holdings[i]).pnl;
     const clr = realPnl >= 0 ? 'var(--profit)' : 'var(--loss)';
     return `<div class="legend-item">
-      <div class="legend-name"><div class="legend-dot" style="background:${COLORS[i]}"></div>${l}</div>
-      <div style="color:${clr};font-family:'JetBrains Mono',monospace;font-size:11px">${pnlTotal > 0 ? (pnlData[i]/pnlTotal*100).toFixed(1) : 0}%</div>
+      <div class="legend-name"><div class="legend-dot" style="background:${holdingColors[i]}"></div>${l}</div>
+      <div style="color:${clr};font-family:'JetBrains Mono',monospace;font-size:11px">${pnlTotal>0?(pnlData[i]/pnlTotal*100).toFixed(1):0}%</div>
     </div>`;
   }).join('');
 }
@@ -1318,36 +1269,26 @@ function renderHistoryTable() {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 function quickAdd() {
-  const code   = document.getElementById('quick-code').value.trim().toUpperCase();
-  const name   = document.getElementById('quick-name').value.trim();
-  const market = document.getElementById('quick-market').value;
+  const code = document.getElementById('quick-code').value.trim();
+  const name = document.getElementById('quick-name').value.trim();
   const shares = parseInt(document.getElementById('quick-shares').value);
-  const cost   = parseFloat(document.getElementById('quick-cost').value);
-  const price  = parseFloat(document.getElementById('quick-price').value);
-  const sl     = parseFloat(document.getElementById('quick-sl').value) || null;
+  const cost = parseFloat(document.getElementById('quick-cost').value);
+  const price = parseFloat(document.getElementById('quick-price').value);
+  const sl = parseFloat(document.getElementById('quick-sl').value) || null;
 
   if (!code || !name || !shares || !cost || !price) {
-    alert('請填寫股票代號、名稱、股數、成本、市價'); return;
+    alert('請填寫股票代號、名稱、股數、成本、市價');
+    return;
   }
-  state.holdings.push({ code, name, shares, cost, price, sl, market });
+  state.holdings.push({ code, name, shares, cost, price, sl });
   if (!state.initialCost) {
     const { totalNet } = calcTotal();
     state.initialCost = totalNet;
   }
-  save(); render();
+  save();
+  render();
   ['quick-code','quick-name','quick-shares','quick-cost','quick-price','quick-sl'].forEach(id => document.getElementById(id).value = '');
 }
-
-// 動態更新股數標籤
-document.addEventListener('DOMContentLoaded', () => {
-  const marketSel = document.getElementById('quick-market');
-  if (marketSel) {
-    marketSel.addEventListener('change', () => {
-      const lbl = document.getElementById('shares-label');
-      if (lbl) lbl.textContent = marketSel.value === 'US' ? '股數（股）' : '股數（張）';
-    });
-  }
-});
 
 function openAddModal() {
   // Focus on sidebar form
@@ -1513,25 +1454,10 @@ function debugLog(msg) {
   el.innerHTML = `[${t}] ${msg}\n` + el.innerHTML;
 }
 
-const FINNHUB_KEY = 'd94s6l9r01qq8ms63mf0d94s6l9r01qq8ms63mfg';
-
-async function fetchFinnhubPrice(code) {
-  debugLog(`Finnhub 查詢 ${code}...`);
-  try {
-    const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${code}&token=${FINNHUB_KEY}`);
-    debugLog(`${code} Finnhub HTTP: ${res.status}`);
-    if (res.ok) {
-      const json = await res.json();
-      debugLog(`${code} Finnhub: ${JSON.stringify(json)}`);
-      const price = json?.c; // current price
-      if (price && price > 0) { debugLog(`✓ ${code} USD = ${price}`); return price; }
-    }
-  } catch(e) { debugLog(`${code} Finnhub 錯誤: ${e.message}`); }
-  return null;
-}
-
 async function fetchFuglePrice(code, apiKey) {
   debugLog(`Fugle 查詢 ${code}...`);
+
+  // 方法1: intraday/quote（盤中即時）
   try {
     const url = `https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/${code}`;
     const res = await fetch(url, { headers: { 'X-API-KEY': apiKey } });
@@ -1539,19 +1465,29 @@ async function fetchFuglePrice(code, apiKey) {
     if (res.status === 401) { debugLog('❌ API Key 無效'); return null; }
     if (res.ok) {
       const json = await res.json();
+      debugLog(`${code} intraday: ${JSON.stringify(json).slice(0,150)}`);
       const price = json?.lastPrice ?? json?.closePrice ?? json?.previousClose ?? json?.price ?? json?.close;
-      if (price != null && parseFloat(price) > 0) { debugLog(`✓ ${code} = ${price}`); return parseFloat(price); }
+      if (price != null && parseFloat(price) > 0) {
+        debugLog(`✓ ${code} = ${price}`);
+        return parseFloat(price);
+      }
     }
   } catch (e) { debugLog(`${code} intraday 錯誤: ${e.message}`); }
 
+  // 方法2: snapshot（盤後也有收盤價）
   try {
     const url = `https://api.fugle.tw/marketdata/v1.0/stock/snapshot/quotes/${code}`;
     const res = await fetch(url, { headers: { 'X-API-KEY': apiKey } });
+    debugLog(`${code} snapshot HTTP: ${res.status}`);
     if (res.ok) {
       const json = await res.json();
+      debugLog(`${code} snapshot: ${JSON.stringify(json).slice(0,150)}`);
       const data = json?.data?.[0] ?? json;
       const price = data?.closePrice ?? data?.lastPrice ?? data?.previousClose ?? data?.close;
-      if (price != null && parseFloat(price) > 0) { debugLog(`✓ ${code} (snapshot) = ${price}`); return parseFloat(price); }
+      if (price != null && parseFloat(price) > 0) {
+        debugLog(`✓ ${code} (snapshot) = ${price}`);
+        return parseFloat(price);
+      }
     }
   } catch (e) { debugLog(`${code} snapshot 錯誤: ${e.message}`); }
 
@@ -1562,25 +1498,20 @@ async function fetchFuglePrice(code, apiKey) {
 async function refreshAllPrices() {
   if (isFetching || state.holdings.length === 0) return;
   const apiKey = getFugleKey();
-  if (!apiKey) { setQuoteStatus('err', '尚未設定 API Key'); openApiKeyModal(); return; }
-
+  if (!apiKey) {
+    setQuoteStatus('err', '尚未設定 API Key');
+    openApiKeyModal();
+    return;
+  }
   isFetching = true;
   setQuoteStatus('loading', '更新報價中…');
 
-  // 先更新匯率
-  await fetchUsdTwd();
-
   const codes = state.holdings.map(h => h.code);
-  debugLog(`==== 開始更新 [${codes.join(',')}] ====`);
+  debugLog(`==== 開始更新 [${codes.join(',')}] 盤中:${isMarketOpen()} ====`);
 
   let ok = 0, fail = 0;
   for (const h of state.holdings) {
-    let price = null;
-    if (isUsStock(h.code)) {
-      price = await fetchFinnhubPrice(h.code.toUpperCase());
-    } else {
-      price = await fetchFuglePrice(h.code, apiKey);
-    }
+    const price = await fetchFuglePrice(h.code, apiKey);
     if (price !== null) { h.price = price; ok++; }
     else fail++;
     await new Promise(r => setTimeout(r, 300));
@@ -1590,7 +1521,7 @@ async function refreshAllPrices() {
   const t = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
   debugLog(`完成: ${ok} 成功 / ${fail} 失敗`);
 
-  if (fail === 0) setQuoteStatus('ok', `報價已更新 ${t}`);
+  if (fail === 0) setQuoteStatus('ok', `${isMarketOpen()?'即時':'收盤'}報價已更新 ${t}`);
   else if (ok === 0) { setQuoteStatus('err', '報價失敗，請開啟 Debug'); showToast('⚠ 報價失敗，請點 Debug 查看'); }
   else setQuoteStatus('err', `${ok} 成功 / ${fail} 失敗 ${t}`);
 }
@@ -1790,12 +1721,11 @@ function doUnlock(password) {
   sessionStorage.setItem('portfolio_pw_session', password);
   document.getElementById('lockScreen').style.display = 'none';
   document.getElementById('mainContent').style.display = 'block';
-  load(); initDates(); render(); scheduleWeeklyRecord();
-  fetchUsdTwd().then(() => startQuoteTimer()); // 先取匯率再開始報價
-  syncFromSheets(true);
+  load(); initDates(); render(); scheduleWeeklyRecord(); startQuoteTimer();
   document.getElementById('editModal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
   });
+  // 登入後若沒有 API Key，自動開設定
   if (!getFugleKey()) setTimeout(() => openApiKeyModal(), 600);
 }
 
