@@ -618,7 +618,7 @@
         <thead>
           <tr>
             <th style="text-align:left">股票</th>
-            <th>股數／單位</th>
+            <th>股數</th>
             <th>成本價</th>
             <th>市價 ✎</th>
             <th>總成本</th>
@@ -916,7 +916,7 @@ function load() {
 let usdTwd = 32;
 
 function isUsStock(code) {
-  return !/^\d+$/.test((code||'').trim());
+  return !/^\d+$/.test((code || '').trim());
 }
 
 async function fetchUsdTwd() {
@@ -930,11 +930,13 @@ async function fetchUsdTwd() {
         usdTwd = rate;
         const el = document.getElementById('fxStatus');
         if (el) el.textContent = `USD/TWD ${usdTwd.toFixed(2)}`;
+        debugLog(`✓ USD/TWD = ${usdTwd.toFixed(2)} (Finnhub)`);
         return;
       }
     }
-  } catch(e) {}
-  // Fallback
+  } catch(e) { debugLog(`匯率 Finnhub 失敗: ${e.message}`); }
+
+  // Fallback: open exchange rate
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD');
     if (res.ok) {
@@ -944,24 +946,26 @@ async function fetchUsdTwd() {
         usdTwd = rate;
         const el = document.getElementById('fxStatus');
         if (el) el.textContent = `USD/TWD ${usdTwd.toFixed(2)}`;
+        debugLog(`✓ USD/TWD = ${usdTwd.toFixed(2)} (fallback)`);
       }
     }
-  } catch(e) {}
+  } catch(e) { debugLog(`匯率 fallback 失敗: ${e.message}`); }
 }
 
 // ── Calculations ──────────────────────────────────────────────────────────────
 function calcHolding(h) {
   const isUS = isUsStock(h.code);
-  const multiplier = isUS ? 1 : 1000;           // 台股1張=1000股，美股1單位=1股
-  const priceInTwd = isUS ? h.price * usdTwd : h.price;  // 美股換算台幣
+  // 台股：shares 以「股」為單位（1張=1000股，使用者輸入時就輸入股數）
+  // 美股：shares 以「股」為單位
+  const priceInTwd = isUS ? h.price * usdTwd : h.price;
   const costInTwd  = isUS ? h.cost  * usdTwd : h.cost;
 
-  const netValue  = h.shares * multiplier * priceInTwd;
-  const costValue = h.shares * multiplier * costInTwd;
+  const netValue  = h.shares * priceInTwd;
+  const costValue = h.shares * costInTwd;
   const pnl    = netValue - costValue;
   const pnlPct = costValue > 0 ? (pnl / costValue * 100) : 0;
   const slDist = h.sl ? ((h.price - h.sl) / h.price * 100) : null;
-  return { netValue, costValue, pnl, pnlPct, slDist, isUS, priceInTwd, costInTwd, multiplier };
+  return { netValue, costValue, pnl, pnlPct, slDist, isUS, priceInTwd, costInTwd };
 }
 
 function calcTotal() {
@@ -1043,30 +1047,28 @@ function render() {
 
       return `<tr>
         <td>
-          <div class="stock-name editable" onclick="inlineEdit(this, ${i}, 'name')" title="點擊編輯名稱">${h.name}</div>
-          <div class="stock-code editable" onclick="inlineEdit(this, ${i}, 'code')" title="點擊編輯代號" style="font-size:11px;color:var(--text3)">${h.code}${c.isUS ? ' <span style="color:#ffb800;font-size:9px;font-weight:600">US</span>' : ''}</div>
+          <div class="stock-name editable" onclick="inlineEdit(this, ${i}, 'name')">${h.name}</div>
+          <div class="stock-code editable" onclick="inlineEdit(this, ${i}, 'code')" style="font-size:11px;color:var(--text3)">${h.code}${c.isUS ? ' <span style="color:#ffb800;font-size:9px;font-weight:600">US</span>' : ''}</div>
         </td>
         <td>
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'shares')" title="點擊編輯">${fmtNum(h.shares)}</span>
-          <div style="font-size:9px;color:var(--text3)">${c.isUS ? '股' : '張'}</div>
+          <span class="editable" onclick="inlineEdit(this, ${i}, 'shares')">${fmtNum(h.shares)}</span>
+          <div style="font-size:9px;color:var(--text3)">股</div>
         </td>
         <td>
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'cost')" title="點擊編輯成本價">${h.cost.toFixed(2)}</span>
+          <span class="editable" onclick="inlineEdit(this, ${i}, 'cost')">${h.cost.toFixed(2)}</span>
           <div style="font-size:9px;color:var(--text3)">${c.isUS ? 'USD' : 'TWD'}</div>
         </td>
         <td style="color:var(--text)">
-          <span class="editable" onclick="inlineEdit(this, ${i}, 'price')" title="點擊編輯市價">${h.price.toFixed(2)}</span>
+          <span class="editable" onclick="inlineEdit(this, ${i}, 'price')">${h.price.toFixed(2)}</span>
           <div style="font-size:9px;color:var(--text3)">${c.isUS ? 'USD' : 'TWD'}</div>
         </td>
         <td style="color:var(--text2)">${fmt(c.costValue)}</td>
         <td style="color:var(--text)">${fmt(c.netValue)}</td>
         <td class="${pnlClass}">${fmt(c.pnl)}</td>
         <td class="${pnlClass}">${fmtPct(c.pnlPct)}</td>
-        <td><span class="editable" onclick="inlineEdit(this, ${i}, 'sl')" title="點擊編輯停損點" style="color:var(--warning)">${h.sl ? h.sl.toFixed(2) : '—'}</span></td>
+        <td><span class="editable" onclick="inlineEdit(this, ${i}, 'sl')" style="color:var(--warning)">${h.sl ? h.sl.toFixed(2) : '—'}</span></td>
         <td>${slDisplay}</td>
-        <td>
-          <button class="btn btn-danger" onclick="removeHolding(${i})">✕</button>
-        </td>
+        <td><button class="btn btn-danger" onclick="removeHolding(${i})">✕</button></td>
       </tr>`;
     }).join('') + `<tr class="cash-row">
       <td><span style="color:var(--text2)">現金</span></td>
@@ -1508,23 +1510,50 @@ async function fetchFuglePrice(code, apiKey) {
   return null;
 }
 
+const FINNHUB_KEY = 'd94s6l9r01qq8ms63mf0d94s6l9r01qq8ms63mfg';
+
+async function fetchFinnhubPrice(code) {
+  debugLog(`Finnhub 查詢 ${code}...`);
+  try {
+    const url = `https://finnhub.io/api/v1/quote?symbol=${code}&token=${FINNHUB_KEY}`;
+    const res = await fetch(url);
+    debugLog(`Finnhub ${code} HTTP: ${res.status}`);
+    if (res.ok) {
+      const json = await res.json();
+      debugLog(`Finnhub ${code} 回傳: ${JSON.stringify(json)}`);
+      // c = current price, pc = previous close
+      const price = json?.c && json.c > 0 ? json.c : json?.pc;
+      if (price && price > 0) { debugLog(`✓ ${code} = $${price} USD`); return price; }
+      debugLog(`✗ ${code} 無有效價格 (c=${json?.c}, pc=${json?.pc})`);
+    }
+  } catch(e) { debugLog(`Finnhub ${code} 錯誤: ${e.message}`); }
+  return null;
+}
+
 async function refreshAllPrices() {
   if (isFetching || state.holdings.length === 0) return;
   const apiKey = getFugleKey();
-  if (!apiKey) {
-    setQuoteStatus('err', '尚未設定 API Key');
-    openApiKeyModal();
-    return;
-  }
+  if (!apiKey) { setQuoteStatus('err', '尚未設定 API Key'); openApiKeyModal(); return; }
+
   isFetching = true;
   setQuoteStatus('loading', '更新報價中…');
 
+  // 先更新匯率
+  await fetchUsdTwd();
+
   const codes = state.holdings.map(h => h.code);
-  debugLog(`==== 開始更新 [${codes.join(',')}] 盤中:${isMarketOpen()} ====`);
+  debugLog(`==== 開始更新 [${codes.join(',')}] 盤中:${isMarketOpen()} | USD/TWD:${usdTwd.toFixed(2)} ====`);
 
   let ok = 0, fail = 0;
   for (const h of state.holdings) {
-    const price = await fetchFuglePrice(h.code, apiKey);
+    let price = null;
+    if (isUsStock(h.code)) {
+      // 美股 → Finnhub（回傳 USD 原始價格，calcHolding 再換算）
+      price = await fetchFinnhubPrice(h.code.toUpperCase());
+    } else {
+      // 台股 → Fugle
+      price = await fetchFuglePrice(h.code, apiKey);
+    }
     if (price !== null) { h.price = price; ok++; }
     else fail++;
     await new Promise(r => setTimeout(r, 300));
@@ -1534,7 +1563,7 @@ async function refreshAllPrices() {
   const t = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
   debugLog(`完成: ${ok} 成功 / ${fail} 失敗`);
 
-  if (fail === 0) setQuoteStatus('ok', `${isMarketOpen()?'即時':'收盤'}報價已更新 ${t}`);
+  if (fail === 0) setQuoteStatus('ok', `報價已更新 ${t}`);
   else if (ok === 0) { setQuoteStatus('err', '報價失敗，請開啟 Debug'); showToast('⚠ 報價失敗，請點 Debug 查看'); }
   else setQuoteStatus('err', `${ok} 成功 / ${fail} 失敗 ${t}`);
 }
@@ -1735,7 +1764,7 @@ function doUnlock(password) {
   document.getElementById('lockScreen').style.display = 'none';
   document.getElementById('mainContent').style.display = 'block';
   load(); initDates(); render(); scheduleWeeklyRecord();
-  fetchUsdTwd().then(() => { render(); startQuoteTimer(); }); // 先抓匯率再更新
+  fetchUsdTwd().then(() => { render(); startQuoteTimer(); });
   document.getElementById('editModal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
   });
